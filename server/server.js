@@ -1,28 +1,76 @@
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
+const { getGoogleScholarAuthorId } = require('./test');
 const app = express();
 const PORT = 5000;
 
 app.use(cors());
+app.use(express.json());
+
+// Endpoint to fetch author ID from name and institution
+app.post('/api/author-id', async (req, res) => {
+  const { firstName, lastName, institution } = req.body;
+  
+  if (!firstName || !lastName || !institution) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  
+  try {
+    console.log(`🔍 Searching for author: ${firstName} ${lastName} at ${institution}`);
+    
+    // Use the getGoogleScholarAuthorId function from test.js
+    const result = await getGoogleScholarAuthorId(firstName, lastName, institution);
+    
+    if (result.error) {
+      console.log(`❌ Error finding author: ${result.error}`);
+      res.status(404).json({ error: result.error });
+    } else {
+      console.log(`✅ Found author ID: ${result.authorId}`);
+      res.json({ author_id: result.authorId });
+    }
+  } catch (error) {
+    console.error('❌ Error searching for author:', error.message);
+    res.status(500).json({ error: 'Failed to search for author' });
+  }
+});
 
 app.get('/api/scholar', async (req, res) => {
-    const { author_id } = req.query;
-    const apiKey = "c85dc990e446638580b0da2eeb47af2ff9ceac6ad8a384e64ce3c446429c1ae2";
+    const { firstName, lastName, institution } = req.query;
+    console.log(req.query);
+    
+    if (!firstName || !lastName || !institution) {
+        return res.status(400).json({ error: 'Missing required fields: firstName, lastName, and institution are required' });
+    }
+    
+    const apiKey = "467b61cf4b48104adc10075faa6036e08c2a82f12e60192136ee5e447a2d5293";
 
-    let allArticles = [];
-    let start = 0;
-    let hasMore = true;
-    
-    console.log(`🔍 Fetching data for author ID: ${author_id}`);
-    
     try {
+        console.log(`🔍 Searching for author: ${firstName} ${lastName} at ${institution}`);
+        
+        // Use the getGoogleScholarAuthorId function to get the author ID
+        const result = await getGoogleScholarAuthorId(firstName, lastName, institution);
+        
+        if (result.error) {
+            console.log(`❌ Error finding author: ${result.error}`);
+            return res.status(404).json({ error: result.error });
+        }
+        
+        const authorId = result.authorId;
+        console.log(`✅2 Found author ID: ${authorId}`);
+        
+        let allArticles = [];
+        let start = 0;
+        let hasMore = true;
+        
+        console.log(`🔍 Fetching data for author ID: ${authorId}`);
+        
         while (hasMore) {
             console.log(`  Fetching batch starting at position ${start}...`);
             const response = await axios.get('https://serpapi.com/search', {
                 params: {
                     engine: 'google_scholar_author',
-                    author_id,
+                    author_id: authorId,
                     api_key: apiKey,
                     start,
                 },
@@ -39,7 +87,7 @@ app.get('/api/scholar', async (req, res) => {
             }
         }
 
-        console.log(`✅ Fetched ${allArticles.length} total papers for author ID: ${author_id}`);
+        console.log(`✅ Fetched ${allArticles.length} total papers for author ID: ${authorId}`);
         console.log('-----------------------------------------------------');
 
         // Organize articles by journal and count citations
@@ -140,16 +188,29 @@ app.get('/api/scholar', async (req, res) => {
 
 // Add a new endpoint to get detailed journal stats
 app.get('/api/journal-stats', async (req, res) => {
-    const { author_id, journal_name } = req.query;
+    const { firstName, lastName, institution, journal_name } = req.query;
     
-    if (!author_id || !journal_name) {
-        return res.status(400).json({ error: 'Both author_id and journal_name are required' });
+    if (!firstName || !lastName || !institution || !journal_name) {
+        return res.status(400).json({ error: 'Missing required fields: firstName, lastName, institution, and journal_name are required' });
     }
     
-    const apiKey = "c85dc990e446638580b0da2eeb47af2ff9ceac6ad8a384e64ce3c446429c1ae2";
+    const apiKey = "467b61cf4b48104adc10075faa6036e08c2a82f12e60192136ee5e447a2d5293";
 
     try {
-        console.log(`🔍 Fetching detailed stats for journal "${journal_name}" by author ID: ${author_id}`);
+        console.log(`🔍 Searching for author: ${firstName} ${lastName} at ${institution}`);
+        
+        // Use the getGoogleScholarAuthorId function to get the author ID
+        const result = await getGoogleScholarAuthorId(firstName, lastName, institution);
+        
+        if (result.error) {
+            console.log(`❌ Error finding author: ${result.error}`);
+            return res.status(404).json({ error: result.error });
+        }
+        
+        const authorId = result.authorId;
+        console.log(`✅ Found author ID: ${authorId}`);
+        
+        console.log(`🔍 Fetching detailed stats for journal "${journal_name}" by author ID: ${authorId}`);
         
         let allArticles = [];
         let start = 0;
@@ -159,7 +220,7 @@ app.get('/api/journal-stats', async (req, res) => {
             const response = await axios.get('https://serpapi.com/search', {
                 params: {
                     engine: 'google_scholar_author',
-                    author_id,
+                    author_id: authorId,
                     api_key: apiKey,
                     start,
                 },

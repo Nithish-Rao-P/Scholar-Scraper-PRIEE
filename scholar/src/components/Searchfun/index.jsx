@@ -12,6 +12,12 @@ const ScholarAuthor = () => {
   const [filteredJournals, setFilteredJournals] = useState([]);
   const [positionCounts, setPositionCounts] = useState({});
   const [animateTable, setAnimateTable] = useState(false);
+  
+  // New state variables for the form
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [institution, setInstitution] = useState('');
+  const [searchError, setSearchError] = useState('');
 
   // Process journal data to identify author's position
   useEffect(() => {
@@ -85,24 +91,38 @@ const ScholarAuthor = () => {
     }, 300);
   };
 
-  const fetchScholarData = async () => {
-    if (!authorId) return alert("Please enter an Author ID!");
-  
+  // New function to search for author by name and institution
+  const searchAuthor = async () => {
+    if (!firstName || !lastName || !institution) {
+      setSearchError('Please enter first name, last name, and institution');
+      return;
+    }
+    
     setLoading(true);
+    setSearchError('');
     setJournalStats(null);
     setSelectedJournal(null);
     setActiveTab('all');
-  
+    
     try {
-      const response = await axios.get(`http://localhost:5000/api/scholar?author_id=${authorId}`);
+      // Make a GET request with query parameters
+      const response = await axios.get(`http://localhost:5000/api/scholar?firstName=${encodeURIComponent(firstName)}&lastName=${encodeURIComponent(lastName)}&institution=${encodeURIComponent(institution)}`);
+      
       setJournalStats(response.data);
       
-      // In a real implementation, the API would return the author's name
-      // For demo purposes, we're setting a placeholder name
-      setAuthorName("John Doe"); // This would come from the API
+      // Set the author name from the response
+      if (response.data.authorProfile && response.data.authorProfile.name) {
+        setAuthorName(response.data.authorProfile.name);
+      } else {
+        setAuthorName(`${firstName} ${lastName}`);
+      }
     } catch (error) {
-      console.error('Error fetching Google Scholar data:', error);
-      alert("Failed to fetch data. Check your Author ID or backend.");
+      console.error('Error searching for author:', error);
+      if (error.response && error.response.status === 404) {
+        setSearchError('Author not found. Please check the details and try again.');
+      } else {
+        setSearchError('Failed to search for author. Please try again later.');
+      }
     } finally {
       setLoading(false);
     }
@@ -112,7 +132,7 @@ const ScholarAuthor = () => {
     setJournalLoading(true);
     
     try {
-      const response = await axios.get(`http://localhost:5000/api/journal-stats?author_id=${authorId}&journal_name=${encodeURIComponent(journalName)}`);
+      const response = await axios.get(`http://localhost:5000/api/journal-stats?firstName=${encodeURIComponent(firstName)}&lastName=${encodeURIComponent(lastName)}&institution=${encodeURIComponent(institution)}&journal_name=${encodeURIComponent(journalName)}`);
       
       // Add author position to articles (this would come from the API in a real implementation)
       const articlesWithPosition = response.data.articles.map(article => {
@@ -164,24 +184,83 @@ const ScholarAuthor = () => {
         Author Position Analysis
       </h1>
       
-      <div style={{ display: 'flex', marginBottom: '2rem', alignItems: 'center' }}>
-        <input
-          type="text"
-          placeholder="Enter Author ID (e.g., Xm4n6EMAAAAJ)"
-          value={authorId}
-          onChange={(e) => setAuthorId(e.target.value)}
-          style={{ 
-            padding: '0.75rem', 
-            marginRight: '1rem', 
-            flexGrow: 1,
+      <div style={{ 
+        display: 'flex', 
+        flexDirection: 'column',
+        marginBottom: '2rem', 
+        backgroundColor: '#f8f9fa',
+        padding: '20px',
+        borderRadius: '8px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+      }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '10px' }}>
+          <div style={{ flex: '1 1 200px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>First Name</label>
+            <input
+              type="text"
+              placeholder="Enter First Name"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              style={{ 
+                padding: '0.75rem', 
+                width: '100%',
+                borderRadius: '4px',
+                border: '1px solid #ddd',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+              }}
+            />
+          </div>
+          
+          <div style={{ flex: '1 1 200px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Last Name</label>
+            <input
+              type="text"
+              placeholder="Enter Last Name"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              style={{ 
+                padding: '0.75rem', 
+                width: '100%',
+                borderRadius: '4px',
+                border: '1px solid #ddd',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+              }}
+            />
+          </div>
+          
+          <div style={{ flex: '1 1 200px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Institution</label>
+            <input
+              type="text"
+              placeholder="Enter Institution"
+              value={institution}
+              onChange={(e) => setInstitution(e.target.value)}
+              style={{ 
+                padding: '0.75rem', 
+                width: '100%',
+                borderRadius: '4px',
+                border: '1px solid #ddd',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+              }}
+            />
+          </div>
+        </div>
+        
+        {searchError && (
+          <div style={{ 
+            color: '#e74c3c', 
+            marginBottom: '10px',
+            padding: '10px',
+            backgroundColor: '#fadbd8',
             borderRadius: '4px',
-            border: '1px solid #ddd',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
-          }}
-        />
+            border: '1px solid #f5c6cb'
+          }}>
+            {searchError}
+          </div>
+        )}
         
         <button 
-          onClick={fetchScholarData} 
+          onClick={searchAuthor} 
           disabled={loading}
           style={{ 
             padding: '0.75rem 1.5rem',
@@ -192,10 +271,11 @@ const ScholarAuthor = () => {
             cursor: loading ? 'not-allowed' : 'pointer',
             opacity: loading ? 0.7 : 1,
             boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-            transition: 'all 0.3s ease'
+            transition: 'all 0.3s ease',
+            alignSelf: 'flex-end'
           }}
         >
-          {loading ? "Loading..." : "Analyze Citations"}
+          {loading ? "Searching..." : "Search Author"}
         </button>
       </div>
 
@@ -222,7 +302,7 @@ const ScholarAuthor = () => {
               100% { transform: rotate(360deg); }
             }
           `}</style>
-          <p>Fetching and analyzing publication data...</p>
+          <p>Searching for author and analyzing publication data...</p>
         </div>
       )}
 
@@ -582,11 +662,7 @@ const ScholarAuthor = () => {
           color: '#7f8c8d',
           boxShadow: '0 4px 6px rgba(0,0,0,0.05)'
         }}>
-          <p>Enter an author ID and click "Analyze Citations" to view journal citation statistics.</p>
-          <p style={{ fontSize: '0.9rem', marginTop: '10px' }}>
-            Tip: You can find an author ID in the URL of a Google Scholar profile page.<br />
-            Example: For https://scholar.google.com/citations?user=Xm4n6EMAAAAJ, the ID is "Xm4n6EMAAAAJ"
-          </p>
+          <p>Enter author details and click "Search Author" to view journal citation statistics.</p>
         </div>
       )}
     </div>
