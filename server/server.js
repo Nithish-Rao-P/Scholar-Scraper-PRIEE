@@ -93,6 +93,17 @@ app.get('/api/scholar', async (req, res) => {
         // Organize articles by journal and count citations
         const journalCitations = {};
         
+        // Prepare data for citation charts
+        const yearlyCitations = {};
+        const citationDistribution = {
+            '0-5': 0,
+            '6-10': 0,
+            '11-20': 0,
+            '21-50': 0,
+            '51-100': 0,
+            '100+': 0
+        };
+        
         allArticles.forEach(article => {
             // Extract journal name
             const publication = article.publication || 'Unknown Journal';
@@ -115,12 +126,34 @@ app.get('/api/scholar', async (req, res) => {
             journalCitations[journalName].totalCitations += citations;
             journalCitations[journalName].articleCount += 1;
             
+            // Track yearly citations
+            const year = article.year || 'Unknown';
+            if (!yearlyCitations[year]) {
+                yearlyCitations[year] = 0;
+            }
+            yearlyCitations[year] += citations;
+            
+            // Track citation distribution
+            if (citations <= 5) {
+                citationDistribution['0-5']++;
+            } else if (citations <= 10) {
+                citationDistribution['6-10']++;
+            } else if (citations <= 20) {
+                citationDistribution['11-20']++;
+            } else if (citations <= 50) {
+                citationDistribution['21-50']++;
+            } else if (citations <= 100) {
+                citationDistribution['51-100']++;
+            } else {
+                citationDistribution['100+']++;
+            }
+            
             // Optionally store article details
             journalCitations[journalName].articles.push({
                 title: article.title,
                 year: article.year,
                 citations: citations,
-                url: article.article_url
+                url: article.article_url || article.link || article.url
             });
         });
         
@@ -132,6 +165,15 @@ app.get('/api/scholar', async (req, res) => {
             avgCitationsPerArticle: (data.totalCitations / data.articleCount).toFixed(2),
             articles: data.articles
         })).sort((a, b) => b.totalCitations - a.totalCitations);
+
+        // Convert yearly citations to array format for charts
+        const yearlyCitationsArray = Object.entries(yearlyCitations)
+            .map(([year, count]) => ({ year, count }))
+            .sort((a, b) => a.year.localeCompare(b.year));
+            
+        // Convert citation distribution to array format for charts
+        const citationDistributionArray = Object.entries(citationDistribution)
+            .map(([range, count]) => ({ range, count }));
 
         // Print detailed journal statistics to console
         console.log('📊 JOURNAL CITATION STATISTICS:');
@@ -178,7 +220,14 @@ app.get('/api/scholar', async (req, res) => {
         res.json({ 
             totalArticles: allArticles.length,
             totalCitations: totalCitations,
-            journalCitations: journalStats 
+            journalCitations: journalStats,
+            yearlyCitations: yearlyCitationsArray,
+            citationDistribution: citationDistributionArray,
+            authorProfile: {
+                name: `${firstName} ${lastName}`,
+                institution: institution,
+                authorId: authorId
+            }
         });
     } catch (error) {
         console.error('❌ Error fetching data from SerpAPI:', error.message);

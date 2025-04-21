@@ -1,5 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement } from 'chart.js';
+import { Pie, Bar } from 'react-chartjs-2';
+
+// Register Chart.js components
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement);
 
 const ScholarAuthor = () => {
   const [authorId, setAuthorId] = useState('');
@@ -18,6 +23,8 @@ const ScholarAuthor = () => {
   const [lastName, setLastName] = useState('');
   const [institution, setInstitution] = useState('');
   const [searchError, setSearchError] = useState('');
+  const [scholarData, setScholarData] = useState(null);
+  const [citationCharts, setCitationCharts] = useState(null);
 
   // Process journal data to identify author's position
   useEffect(() => {
@@ -94,64 +101,96 @@ const ScholarAuthor = () => {
   // New function to search for author by name and institution
   const searchAuthor = async () => {
     if (!firstName || !lastName || !institution) {
-      setSearchError('Please enter first name, last name, and institution');
+      setSearchError('Please fill in all fields');
       return;
     }
     
     setLoading(true);
     setSearchError('');
-    setJournalStats(null);
+    setScholarData(null);
     setSelectedJournal(null);
+    setJournalStats(null);
     setActiveTab('all');
+    setCitationCharts(null);
     
     try {
-      // Make a GET request with query parameters
-      const response = await axios.get(`http://localhost:5000/api/scholar?firstName=${encodeURIComponent(firstName)}&lastName=${encodeURIComponent(lastName)}&institution=${encodeURIComponent(institution)}`);
+      const response = await axios.get(`http://localhost:5000/api/scholar`, {
+        params: {
+          firstName,
+          lastName,
+          institution
+        }
+      });
+
+      console.log('API Response:', response.data); // Debug log
+
+      if (response.data.error) {
+        setSearchError(response.data.error);
+        return;
+      }
+
+      // Set the scholar data
+      setScholarData(response.data);
       
-      setJournalStats(response.data);
+      // Set journal stats
+      if (response.data.journalCitations) {
+        const stats = {
+          totalArticles: response.data.totalArticles || 0,
+          totalCitations: response.data.totalCitations || 0,
+          journalCitations: response.data.journalCitations || []
+        };
+        console.log('Setting journal stats:', stats); // Debug log
+        setJournalStats(stats);
+        setFilteredJournals(stats.journalCitations);
+      }
       
-      // Set the author name from the response
-      if (response.data.authorProfile && response.data.authorProfile.name) {
-        setAuthorName(response.data.authorProfile.name);
-      } else {
-        setAuthorName(`${firstName} ${lastName}`);
+      // Set author name from the response data, with a fallback to the input values
+      setAuthorName(response.data.authorProfile?.name || `${firstName} ${lastName}`);
+      
+      // Prepare data for citation charts
+      if (response.data.yearlyCitations && response.data.citationDistribution) {
+        // Format data for Chart.js
+        const yearlyData = {
+          labels: response.data.yearlyCitations.map(item => `Year ${item.year}`),
+          datasets: [{
+            data: response.data.yearlyCitations.map(item => item.count),
+            backgroundColor: response.data.yearlyCitations.map((_, index) => 
+              `hsl(${(index * 360) / response.data.yearlyCitations.length}, 70%, 50%)`
+            ),
+            borderWidth: 1
+          }]
+        };
+
+        const distributionData = {
+          labels: response.data.citationDistribution.map(item => item.range),
+          datasets: [{
+            data: response.data.citationDistribution.map(item => item.count),
+            backgroundColor: response.data.citationDistribution.map((_, index) => 
+              positionColors[`${index}`] || `hsl(${(index * 360) / response.data.citationDistribution.length}, 70%, 50%)`
+            ),
+            borderWidth: 1
+          }]
+        };
+
+        console.log('Yearly Citations Data:', yearlyData); // Debug log
+        console.log('Citation Distribution Data:', distributionData); // Debug log
+
+        setCitationCharts({
+          yearlyCitations: yearlyData,
+          citationDistribution: distributionData
+        });
       }
     } catch (error) {
       console.error('Error searching for author:', error);
-      if (error.response && error.response.status === 404) {
-        setSearchError('Author not found. Please check the details and try again.');
-      } else {
-        setSearchError('Failed to search for author. Please try again later.');
-      }
+      setSearchError(error.response?.data?.error || 'Failed to search for author. Please try again later.');
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchJournalDetails = async (journalName) => {
-    setJournalLoading(true);
-    
-    try {
-      const response = await axios.get(`http://localhost:5000/api/journal-stats?firstName=${encodeURIComponent(firstName)}&lastName=${encodeURIComponent(lastName)}&institution=${encodeURIComponent(institution)}&journal_name=${encodeURIComponent(journalName)}`);
-      
-      // Add author position to articles (this would come from the API in a real implementation)
-      const articlesWithPosition = response.data.articles.map(article => {
-        // Simulating author position for demo
-        const positions = ['first', 'middle', 'last', 'corresponding'];
-        const position = positions[Math.floor(Math.random() * positions.length)];
-        return { ...article, authorPosition: position };
-      });
-      
-      setSelectedJournal({
-        ...response.data,
-        articles: articlesWithPosition
-      });
-    } catch (error) {
-      console.error('Error fetching journal details:', error);
-      alert("Failed to fetch journal details.");
-    } finally {
-      setJournalLoading(false);
-    }
+  // Replace fetchJournalDetails with a simpler function that just sets the selected journal
+  const handleJournalDetails = (journal) => {
+    setSelectedJournal(journal);
   };
 
   // Position labels for the UI
@@ -306,354 +345,300 @@ const ScholarAuthor = () => {
         </div>
       )}
 
-      {journalStats && (
-        <div>
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            backgroundColor: '#f8f9fa', 
-            padding: '20px', 
-            borderRadius: '8px',
-            marginBottom: '20px',
-            boxShadow: '0 4px 6px rgba(0,0,0,0.05)',
-            flexWrap: 'wrap'
-          }}>
-            <div style={{ textAlign: 'center', padding: '10px', flex: '1 0 120px' }}>
-              <h3 style={{ color: '#3498db', fontSize: '28px', margin: '0 0 5px 0' }}>
-                {journalStats.totalArticles}
-              </h3>
-              <p style={{ margin: 0, color: '#7f8c8d' }}>Total Articles</p>
-            </div>
-            <div style={{ textAlign: 'center', padding: '10px', flex: '1 0 120px' }}>
-              <h3 style={{ color: '#3498db', fontSize: '28px', margin: '0 0 5px 0' }}>
-                {journalStats.totalCitations}
-              </h3>
-              <p style={{ margin: 0, color: '#7f8c8d' }}>Total Citations</p>
-            </div>
-            <div style={{ textAlign: 'center', padding: '10px', flex: '1 0 120px' }}>
-              <h3 style={{ color: '#3498db', fontSize: '28px', margin: '0 0 5px 0' }}>
-                {journalStats.journalCitations.length}
-              </h3>
-              <p style={{ margin: 0, color: '#7f8c8d' }}>Unique Journals</p>
-            </div>
-            <div style={{ textAlign: 'center', padding: '10px', flex: '1 0 120px' }}>
-              <h3 style={{ color: '#3498db', fontSize: '28px', margin: '0 0 5px 0' }}>
-                {(journalStats.totalCitations / journalStats.totalArticles).toFixed(2)}
-              </h3>
-              <p style={{ margin: 0, color: '#7f8c8d' }}>Avg. Citations</p>
-            </div>
-          </div>
-
-          {/* Author Position Tabs */}
-          <div style={{ marginBottom: '30px' }}>
-            <div style={{ 
-              display: 'flex', 
-              borderBottom: '1px solid #e9ecef',
-              overflowX: 'auto',
-              paddingBottom: '2px',
-              marginBottom: '20px'
-            }}>
-              {Object.entries(positionLabels).map(([position, label]) => {
-                // Only show tabs for positions that exist in our data
-                if (position === 'all' || positionCounts[position]) {
-                  return (
-                    <button
-                      key={position}
-                      onClick={() => {
-                        setActiveTab(position);
-                        filterJournalsByPosition(journalStats.journalCitations, position);
-                      }}
-                      style={{
-                        padding: '10px 20px',
-                        margin: '0 5px 0 0',
-                        backgroundColor: activeTab === position ? 
-                          (position === 'all' ? '#3498db' : positionColors[position]) : 'transparent',
-                        color: activeTab === position ? 'white' : '#34495e',
-                        border: 'none',
-                        borderRadius: '4px 4px 0 0',
-                        cursor: 'pointer',
-                        position: 'relative',
-                        overflow: 'hidden',
-                        transition: 'all 0.3s ease',
-                        fontWeight: activeTab === position ? 'bold' : 'normal',
-                        minWidth: '100px',
-                        textAlign: 'center'
-                      }}
-                    >
-                      {label}
-                      {position !== 'all' && (
-                        <span style={{
-                          display: 'inline-block',
-                          backgroundColor: activeTab === position ? 'rgba(255,255,255,0.3)' : positionColors[position],
-                          color: activeTab === position ? 'white' : 'white',
-                          borderRadius: '12px',
-                          padding: '2px 8px',
-                          fontSize: '0.8rem',
-                          marginLeft: '5px',
-                          fontWeight: 'normal'
-                        }}>
-                          {positionCounts[position] || 0}
-                        </span>
-                      )}
-                    </button>
-                  );
-                }
-                return null;
-              })}
-            </div>
-
-            <h2 style={{ 
-              marginTop: '2rem', 
-              color: '#2c3e50',
-              display: 'flex',
-              alignItems: 'center'
-            }}>
-              {positionLabels[activeTab]} 
-              <span style={{
-                fontSize: '1rem',
-                fontWeight: 'normal',
-                marginLeft: '10px',
-                color: '#7f8c8d'
-              }}>
-                ({filteredJournals.length} journals)
-              </span>
-            </h2>
-          </div>
+      {scholarData && (
+        <div className="mt-8">
+          <h2 className="text-2xl font-bold mb-4">Scholar Profile: {authorName}</h2>
           
-          <div style={{ 
-            overflowX: 'auto',
-            transition: 'opacity 0.3s ease',
-            opacity: animateTable ? 1 : 0
-          }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ backgroundColor: '#34495e', color: 'white' }}>
-                  <th style={{ padding: '12px', textAlign: 'left' }}>Rank</th>
-                  <th style={{ padding: '12px', textAlign: 'left' }}>Journal</th>
-                  <th style={{ padding: '12px', textAlign: 'center' }}>Articles</th>
-                  <th style={{ padding: '12px', textAlign: 'center' }}>Citations</th>
-                  <th style={{ padding: '12px', textAlign: 'center' }}>Avg. Citations</th>
-                  <th style={{ padding: '12px', textAlign: 'center' }}>Author Positions</th>
-                  <th style={{ padding: '12px', textAlign: 'center' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredJournals.map((journal, index) => (
-                  <tr 
-                    key={index} 
-                    style={{ 
-                      backgroundColor: index % 2 === 0 ? '#f8f9fa' : 'white',
-                      borderBottom: '1px solid #ecf0f1',
-                      animation: `fadeIn 0.5s ease forwards ${index * 0.1}s`,
-                      opacity: 0
+          {/* Citation Charts */}
+          {citationCharts && (
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: '1fr 1fr', 
+              gap: '2rem',
+              marginBottom: '2rem',
+              minHeight: '400px'
+            }}>
+              {/* Yearly Citations Chart */}
+              <div style={{ 
+                backgroundColor: 'white',
+                borderRadius: '8px',
+                padding: '20px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                minHeight: '400px'
+              }}>
+                <h3 style={{ 
+                  color: '#2c3e50',
+                  marginBottom: '1rem',
+                  textAlign: 'center'
+                }}>
+                  Citations per Year
+                </h3>
+                <div style={{ width: '100%', height: '300px', position: 'relative' }}>
+                  {console.log('Rendering Yearly Citations Chart with data:', citationCharts.yearlyCitations)}
+                  <Bar
+                    data={{
+                      labels: citationCharts.yearlyCitations.labels,
+                      datasets: [{
+                        label: 'Citations',
+                        data: citationCharts.yearlyCitations.datasets[0].data,
+                        backgroundColor: 'rgba(52, 152, 219, 0.8)',
+                        borderColor: 'rgba(52, 152, 219, 1)',
+                        borderWidth: 1
+                      }]
                     }}
-                  >
-                    <td style={{ padding: '12px' }}>{index + 1}</td>
-                    <td style={{ padding: '12px', fontWeight: 'bold' }}>{journal.journal}</td>
-                    <td style={{ padding: '12px', textAlign: 'center' }}>{journal.articleCount}</td>
-                    <td style={{ padding: '12px', textAlign: 'center' }}>{journal.totalCitations}</td>
-                    <td style={{ padding: '12px', textAlign: 'center' }}>{journal.avgCitationsPerArticle}</td>
-                    <td style={{ padding: '12px', textAlign: 'center' }}>
-                      <div style={{ display: 'flex', justifyContent: 'center', gap: '5px' }}>
-                        {Object.entries(journal.positionStats || {}).map(([position, count]) => (
-                          <div 
-                            key={position}
-                            title={`${positionLabels[position]}: ${count}`}
-                            style={{
-                              backgroundColor: positionColors[position],
-                              color: 'white',
-                              borderRadius: '4px',
-                              padding: '2px 6px',
-                              fontSize: '0.8rem',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '3px'
-                            }}
-                          >
-                            <span>{position.charAt(0).toUpperCase()}</span>
-                            <span>{count}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px', textAlign: 'center' }}>
-                      <button
-                        onClick={() => fetchJournalDetails(journal.journal)}
-                        style={{
-                          padding: '6px 12px',
-                          backgroundColor: '#2ecc71',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          transition: 'all 0.3s ease',
-                          boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        legend: {
+                          display: false
+                        },
+                        tooltip: {
+                          callbacks: {
+                            label: (context) => {
+                              return `${context.raw} citations`;
+                            }
+                          }
+                        }
+                      },
+                      scales: {
+                        y: {
+                          beginAtZero: true,
+                          title: {
+                            display: true,
+                            text: 'Number of Citations'
+                          }
+                        },
+                        x: {
+                          title: {
+                            display: true,
+                            text: 'Year'
+                          }
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Citation Distribution Chart */}
+              <div style={{ 
+                backgroundColor: 'white',
+                borderRadius: '8px',
+                padding: '20px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                minHeight: '400px'
+              }}>
+                <h3 style={{ 
+                  color: '#2c3e50',
+                  marginBottom: '1rem',
+                  textAlign: 'center'
+                }}>
+                  Citation Distribution
+                </h3>
+                <div style={{ width: '100%', height: '300px', position: 'relative' }}>
+                  {console.log('Rendering Citation Distribution Chart with data:', citationCharts.citationDistribution)}
+                  <Pie
+                    data={citationCharts.citationDistribution}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        legend: {
+                          position: 'right',
+                          labels: {
+                            font: {
+                              size: 12
+                            }
+                          }
+                        },
+                        tooltip: {
+                          callbacks: {
+                            label: (context) => {
+                              const value = context.raw;
+                              const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                              const percentage = ((value / total) * 100).toFixed(1);
+                              return `${value} articles (${percentage}%)`;
+                            }
+                          }
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Journal Statistics */}
+          {journalStats && (
+            <div>
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                backgroundColor: '#f8f9fa', 
+                padding: '20px', 
+                borderRadius: '8px',
+                marginBottom: '20px',
+                boxShadow: '0 4px 6px rgba(0,0,0,0.05)',
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ textAlign: 'center', padding: '10px', flex: '1 0 120px' }}>
+                  <h3 style={{ color: '#3498db', fontSize: '28px', margin: '0 0 5px 0' }}>
+                    {journalStats.totalArticles}
+                  </h3>
+                  <p style={{ margin: 0, color: '#7f8c8d' }}>Total Articles</p>
+                </div>
+                <div style={{ textAlign: 'center', padding: '10px', flex: '1 0 120px' }}>
+                  <h3 style={{ color: '#3498db', fontSize: '28px', margin: '0 0 5px 0' }}>
+                    {journalStats.totalCitations}
+                  </h3>
+                  <p style={{ margin: 0, color: '#7f8c8d' }}>Total Citations</p>
+                </div>
+                <div style={{ textAlign: 'center', padding: '10px', flex: '1 0 120px' }}>
+                  <h3 style={{ color: '#3498db', fontSize: '28px', margin: '0 0 5px 0' }}>
+                    {journalStats.journalCitations.length}
+                  </h3>
+                  <p style={{ margin: 0, color: '#7f8c8d' }}>Unique Journals</p>
+                </div>
+                <div style={{ textAlign: 'center', padding: '10px', flex: '1 0 120px' }}>
+                  <h3 style={{ color: '#3498db', fontSize: '28px', margin: '0 0 5px 0' }}>
+                    {(journalStats.totalCitations / journalStats.totalArticles).toFixed(2)}
+                  </h3>
+                  <p style={{ margin: 0, color: '#7f8c8d' }}>Avg. Citations</p>
+                </div>
+              </div>
+
+              {/* Journal List */}
+              <div style={{ 
+                overflowX: 'auto',
+                backgroundColor: 'white',
+                borderRadius: '8px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+              }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#34495e', color: 'white' }}>
+                      <th style={{ padding: '12px', textAlign: 'left' }}>Journal</th>
+                      <th style={{ padding: '12px', textAlign: 'center' }}>Articles</th>
+                      <th style={{ padding: '12px', textAlign: 'center' }}>Citations</th>
+                      <th style={{ padding: '12px', textAlign: 'center' }}>Avg. Citations</th>
+                      <th style={{ padding: '12px', textAlign: 'center' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredJournals.map((journal, index) => (
+                      <tr 
+                        key={index} 
+                        style={{ 
+                          backgroundColor: index % 2 === 0 ? '#f8f9fa' : 'white',
+                          borderBottom: '1px solid #ecf0f1'
                         }}
                       >
-                        Details
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <style>{`
-              @keyframes fadeIn {
-                from { opacity: 0; transform: translateY(10px); }
-                to { opacity: 1; transform: translateY(0); }
-              }
-            `}</style>
-          </div>
-
-          {filteredJournals.length === 0 && !loading && (
-            <div style={{ 
-              textAlign: 'center', 
-              padding: '2rem', 
-              backgroundColor: '#f8f9fa',
-              borderRadius: '8px',
-              marginTop: '20px'
-            }}>
-              <p>No journals found with author in {positionLabels[activeTab].toLowerCase()} position.</p>
+                        <td style={{ padding: '12px', fontWeight: 'bold' }}>{journal.journal}</td>
+                        <td style={{ padding: '12px', textAlign: 'center' }}>{journal.articleCount}</td>
+                        <td style={{ padding: '12px', textAlign: 'center' }}>{journal.totalCitations}</td>
+                        <td style={{ padding: '12px', textAlign: 'center' }}>{journal.avgCitationsPerArticle}</td>
+                        <td style={{ padding: '12px', textAlign: 'center' }}>
+                          <button
+                            onClick={() => handleJournalDetails(journal)}
+                            style={{
+                              padding: '6px 12px',
+                              backgroundColor: '#3498db',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              transition: 'background-color 0.3s ease'
+                            }}
+                            onMouseOver={(e) => e.target.style.backgroundColor = '#2980b9'}
+                            onMouseOut={(e) => e.target.style.backgroundColor = '#3498db'}
+                          >
+                            Details
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
       )}
 
-      {journalLoading && (
-        <div style={{ textAlign: 'center', padding: '2rem', marginTop: '2rem' }}>
-          <div className="loading-spinner" style={{
-            border: '4px solid rgba(0, 0, 0, 0.1)',
-            borderRadius: '50%',
-            borderTop: '4px solid #2ecc71',
-            width: '30px',
-            height: '30px',
-            margin: '0 auto 20px auto',
-            animation: 'spin 1s linear infinite'
-          }}></div>
-          <p>Loading journal details...</p>
-        </div>
-      )}
-
-      {selectedJournal && !journalLoading && (
+      {selectedJournal && (
         <div style={{ 
-          marginTop: '2rem', 
-          backgroundColor: '#f8f9fa', 
-          padding: '20px', 
+          marginTop: '2rem',
+          backgroundColor: 'white',
           borderRadius: '8px',
-          border: '1px solid #e9ecef',
-          boxShadow: '0 4px 6px rgba(0,0,0,0.05)',
-          animation: 'fadeIn 0.5s ease'
+          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+          padding: '20px'
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={{ color: '#2c3e50', margin: '0 0 20px 0' }}>
-              {selectedJournal.journal} - Detailed Analysis
-            </h2>
-            <button 
-              onClick={() => setSelectedJournal(null)}
-              style={{
-                padding: '6px 12px',
-                backgroundColor: '#95a5a6',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease'
-              }}
-            >
-              Close
-            </button>
-          </div>
-
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-around', 
-            backgroundColor: 'white', 
-            padding: '15px', 
-            borderRadius: '8px',
-            marginBottom: '20px',
-            flexWrap: 'wrap'
+          <h3 style={{ 
+            color: '#2c3e50',
+            marginBottom: '1rem',
+            paddingBottom: '0.5rem',
+            borderBottom: '2px solid #ecf0f1'
           }}>
-            <div style={{ textAlign: 'center', padding: '10px', flex: '1 0 120px' }}>
-              <h3 style={{ color: '#e74c3c', fontSize: '24px', margin: '0 0 5px 0' }}>
-                {selectedJournal.articleCount}
-              </h3>
-              <p style={{ margin: 0, color: '#7f8c8d' }}>Articles</p>
-            </div>
-            <div style={{ textAlign: 'center', padding: '10px', flex: '1 0 120px' }}>
-              <h3 style={{ color: '#e74c3c', fontSize: '24px', margin: '0 0 5px 0' }}>
-                {selectedJournal.totalCitations}
-              </h3>
-              <p style={{ margin: 0, color: '#7f8c8d' }}>Citations</p>
-            </div>
-            <div style={{ textAlign: 'center', padding: '10px', flex: '1 0 120px' }}>
-              <h3 style={{ color: '#e74c3c', fontSize: '24px', margin: '0 0 5px 0' }}>
-                {(selectedJournal.totalCitations / selectedJournal.articleCount).toFixed(2)}
-              </h3>
-              <p style={{ margin: 0, color: '#7f8c8d' }}>Avg. Citations per Article</p>
-            </div>
-          </div>
-
-          <h3 style={{ color: '#2c3e50' }}>Articles in this Journal</h3>
-          
-          <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-            {selectedJournal.articles.map((article, index) => (
-              <div 
-                key={index} 
-                style={{ 
-                  marginBottom: '15px', 
-                  paddingBottom: '15px', 
-                  borderBottom: index < selectedJournal.articles.length - 1 ? '1px solid #ecf0f1' : 'none',
-                  animation: `fadeIn 0.5s ease forwards ${index * 0.1}s`,
-                  opacity: 0
-                }}
-              >
-                <h4 style={{ margin: '0 0 5px 0', color: '#2c3e50' }}>{article.title}</h4>
-                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-                  <div>
-                    <span style={{ color: '#7f8c8d', marginRight: '15px' }}>Year: {article.year}</span>
-                    <span style={{ 
-                      backgroundColor: positionColors[article.authorPosition], 
-                      color: 'white', 
-                      padding: '2px 8px', 
-                      borderRadius: '4px', 
-                      fontSize: '0.9rem'
-                    }}>
-                      {positionLabels[article.authorPosition]}
-                    </span>
-                  </div>
-                  <span style={{ 
-                    backgroundColor: '#3498db', 
-                    color: 'white', 
-                    padding: '2px 8px', 
-                    borderRadius: '12px', 
-                    fontSize: '0.9rem'
-                  }}>
-                    {article.citations} citations
-                  </span>
-                </div>
-                {article.url && (
-                  <a 
-                    href={article.url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
+            {selectedJournal.journal} - Article Details
+          </h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#34495e', color: 'white' }}>
+                  <th style={{ padding: '12px', textAlign: 'left' }}>Title</th>
+                  <th style={{ padding: '12px', textAlign: 'center' }}>Year</th>
+                  <th style={{ padding: '12px', textAlign: 'center' }}>Citations</th>
+                  <th style={{ padding: '12px', textAlign: 'center' }}>Position</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedJournal.articles.map((article, index) => (
+                  <tr 
+                    key={index}
                     style={{ 
-                      display: 'inline-block', 
-                      marginTop: '8px', 
-                      color: '#3498db', 
-                      textDecoration: 'none',
-                      transition: 'all 0.3s ease'
+                      backgroundColor: index % 2 === 0 ? '#f8f9fa' : 'white',
+                      borderBottom: '1px solid #ecf0f1'
                     }}
                   >
-                    View Article →
-                  </a>
-                )}
-              </div>
-            ))}
+                    <td style={{ padding: '12px' }}>
+                      <a 
+                        href={article.link} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        style={{
+                          color: '#3498db',
+                          textDecoration: 'none'
+                        }}
+                        onMouseOver={(e) => e.target.style.textDecoration = 'underline'}
+                        onMouseOut={(e) => e.target.style.textDecoration = 'none'}
+                      >
+                        {article.title}
+                      </a>
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'center' }}>{article.year}</td>
+                    <td style={{ padding: '12px', textAlign: 'center' }}>{article.citations}</td>
+                    <td style={{ padding: '12px', textAlign: 'center' }}>
+                      <span style={{
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        backgroundColor: positionColors[article.authorPosition] || '#95a5a6',
+                        color: 'white',
+                        fontSize: '0.875rem'
+                      }}>
+                        {positionLabels[article.authorPosition] || 'Unknown'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      {!loading && !journalStats && (
+      {!loading && !scholarData && (
         <div style={{ 
           textAlign: 'center', 
           padding: '3rem', 
